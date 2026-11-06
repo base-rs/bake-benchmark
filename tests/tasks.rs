@@ -85,7 +85,7 @@ fn tasks_delegate_to_the_shared_workspace_operations() {
                 "--seed",
                 "4",
                 "--cpus",
-                "0",
+                &allowed_cpu(),
                 "--timeout-seconds",
                 "60",
                 "--lock",
@@ -272,6 +272,7 @@ fn the_command_and_the_tasks_agree_under_equivalent_plans() {
         .unwrap();
     let artifacts = path("prepared/artifacts.json");
     let lock = path("lock");
+    let cpu = allowed_cpu();
     let plan = [
         "--artifacts",
         &artifacts,
@@ -280,7 +281,15 @@ fn the_command_and_the_tasks_agree_under_equivalent_plans() {
         "--seed",
         "11",
         "--cpus",
-        "0",
+        &cpu,
+        "--timeout-seconds",
+        "60",
+        "--decision-rule",
+        "descriptive",
+        "--stack-padding",
+        "true",
+        "--package",
+        "fixture",
         "--lock",
         &lock,
     ];
@@ -301,6 +310,20 @@ fn the_command_and_the_tasks_agree_under_equivalent_plans() {
             .unwrap()
     };
     assert_eq!(summary(&task_output), summary(&command_output));
+    // Every plan setting, not only those visible in the summary, must match; only the invocation names its own command.
+    let plan = |output: &str| -> serde_json::Value {
+        let mut metadata: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(Path::new(output).join("metadata.json")).unwrap(),
+        )
+        .unwrap();
+        metadata["plan"]
+            .as_object_mut()
+            .unwrap()
+            .remove("invocation");
+        metadata["plan"].take()
+    };
+    assert_eq!(plan(&task_output), plan(&command_output));
+    assert_eq!(plan(&task_output)["timeout_ms"], 60_000);
 
     let invalid = [
         "work",
@@ -322,4 +345,14 @@ fn the_command_and_the_tasks_agree_under_equivalent_plans() {
         command_error.trim_end(),
         format!("base-benchmark: {message}")
     );
+}
+
+/// A CPU this test process may run on, since hosts and containers do not always allow CPU 0.
+fn allowed_cpu() -> String {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap();
+    let list = status
+        .lines()
+        .find_map(|line| line.strip_prefix("Cpus_allowed_list:"))
+        .unwrap();
+    list.trim().split([',', '-']).next().unwrap().to_owned()
 }

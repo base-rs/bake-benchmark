@@ -10,7 +10,7 @@
 | `benchmark:run` | `Workspace::run`: collect a scenario from prepared artifacts in `screening` or `recorded` mode. |
 | `benchmark:summarize` | `summarize_directory`: regenerate `summary.json` from a complete campaign. |
 
-The planned `benchmark:build` became `benchmark:prepare`, because the operation also freezes executables, records their identity, and builds the layout replica. Relative paths are resolved against the Bake project root. Absolute paths are used as they are, and `--manifest-path` selects a standalone workspace, such as a benchmark suite excluded from the main workspace. `prepare`, `run`, and `smoke` cancel on the first SIGINT, SIGTERM, or SIGHUP, so builds stop between trees and workload process groups are killed before the host lock is released; a second signal exits immediately. Tasks pass unset options through, and the core resolves every default, so a task and the `base-benchmark` command given equivalent options produce the same plan, summary, and errors.
+The planned `benchmark:build` became `benchmark:prepare`, because the operation also freezes executables, records their identity, and builds the layout replica. Relative paths are resolved against the Bake project root. Absolute paths are used as they are, and `--manifest-path` selects a standalone workspace, such as a benchmark suite excluded from the main workspace. Each `--tree` is built from its own `Cargo.toml`, so with a standalone suite every tree must name that suite's workspace directory within its checkout, such as `--tree base=../base/benchmarks/suite`. `prepare`, `run`, and `smoke` cancel on the first SIGINT, SIGTERM, or SIGHUP, so builds stop between trees and workload process groups are killed before the host lock is released; a second signal exits immediately. Tasks pass unset options through, and the core resolves every default, so a task and the `base-benchmark` command given equivalent options produce the same plan, summary, and errors.
 
 Registration uses ordinary `#[bake::task]` attributes and the crate-derived `benchmark:` namespace; there is no plugin registry. Discovery uses locked Cargo metadata rather than `bake_cargo::packages`, which deliberately filters for publishable packages. Historical `results/**/Cargo.toml` snapshots are never executed.
 
@@ -18,7 +18,7 @@ Registration uses ordinary `#[bake::task]` attributes and the crate-derived `ben
 
 `bake-benchmark` depends on `base-benchmark`, never the reverse. During initial development the dependency is a sibling path, `../base-benchmark`. Before this crate is merged with working CI or published, switch it to `base-benchmark`'s Git repository or a crates.io release.
 
-Consumers add this crate to their private `bake/Cargo.toml`. It is never a dependency of workloads or published libraries. Integration through `base-project` should follow demonstrated use in more than one project.
+This crate requires Bake 0.20.1 or a later 0.20 release. Tasks register through Bake's link-time slice, so a project resolving a semver-incompatible Bake would not see them; each Bake minor version needs a matching release of this crate. It also requires Rust 1.88, as Bake does. Consumers add this crate to their private `bake/Cargo.toml`. It is never a dependency of workloads or published libraries. Integration through `base-project` should follow demonstrated use in more than one project.
 
 ## Not yet covered
 
