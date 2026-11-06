@@ -19,7 +19,7 @@ reviewers = ["base-rs/maintainers"]
 [dependencies]
 # Tasks register through Bake's linkme slice, so they are visible only to the same semver-compatible Bake; release a new version for each Bake minor version.
 bake = "0.20.1"
-base-benchmark = { version = "0.1.0", path = "../base-benchmark", default-features = false, features = ["runner"] }
+base-benchmark = { version = "0.1.0", default-features = false, features = ["runner"] }
 
 [dev-dependencies]
 serde_json = "1.0.154"

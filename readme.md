@@ -4,7 +4,7 @@ Bake tasks for the shared Base benchmark tooling in [`base-benchmark`](https://g
 
 The tasks are `benchmark:list`, `benchmark:prepare`, `benchmark:smoke`, `benchmark:run`, and `benchmark:summarize`. Each one translates its arguments into the same `base-benchmark` operation that the `base-benchmark` command uses. Preparation, collection, locking, cleanup, validation, and summaries are implemented once, in the core. No Python is involved.
 
-**Status:** an initial, unreleased implementation, used by the `base-html` rendering benchmark. It currently depends on a sibling checkout of `base-benchmark` and needs a Git or registry dependency before it can be built elsewhere or published.
+**Status:** an initial implementation on `base-benchmark` 0.1, used by the `base-html` rendering benchmark.
 
 ## Usage
 

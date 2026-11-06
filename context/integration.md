@@ -16,7 +16,7 @@ Registration uses ordinary `#[bake::task]` attributes and the crate-derived `ben
 
 ## Dependency
 
-`bake-benchmark` depends on `base-benchmark`, never the reverse. During initial development the dependency is a sibling path, `../base-benchmark`. Before this crate is merged with working CI or published, switch it to `base-benchmark`'s Git repository or a crates.io release.
+`bake-benchmark` depends on `base-benchmark`, never the reverse. It uses the `runner` feature of the released crate; its public API exposes `base-benchmark` types, so a semver-incompatible `base-benchmark` release needs a matching release of this crate.
 
 This crate requires Bake 0.20.1 or a later 0.20 release. Tasks register through Bake's link-time slice, so a project resolving a semver-incompatible Bake would not see them; each Bake minor version needs a matching release of this crate. It also requires Rust 1.88, as Bake does. Consumers add this crate to their private `bake/Cargo.toml`. It is never a dependency of workloads or published libraries. Integration through `base-project` should follow demonstrated use in more than one project.
 
