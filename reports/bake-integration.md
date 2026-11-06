@@ -1,5 +1,7 @@
 # Bake Benchmark Integration Findings
 
+> Update, 7 November 2026: the tasks proposed below are implemented, with `benchmark:build` renamed `benchmark:prepare`. See [integration](../context/integration.md). The findings below describe the 6 November audit.
+
 ## Decision and audit scope
 
 On 6 November 2026 the user selected two repositories: [`base-benchmark`](https://github.com/base-rs/base-benchmark) for the Bake-independent Rust implementation and `bake-benchmark` for thin Bake entry points. This supersedes the earlier single feature-gated package recommendation. Both are initial planning scaffolds, not working benchmark tooling; no migrations or new benchmark measurements were performed.
