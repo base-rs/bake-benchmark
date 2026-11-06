@@ -1,0 +1,16 @@
+[package]
+name = "bake-benchmark"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.87"
+license = "MIT"
+description = "Thin Bake integration for the shared Base benchmark tooling"
+repository = "https://github.com/base-rs/bake-benchmark"
+readme = "readme.md"
+
+[workspace]
+members = ["bake"]
+resolver = "3"
+
+[workspace.metadata.bake.release]
+reviewers = ["base-rs/maintainers"]
