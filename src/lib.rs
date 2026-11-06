@@ -4,7 +4,6 @@
 //! Bake tasks for the shared Base benchmark tooling.
 //!
 //! Each task translates its arguments into a [`base_benchmark::Workspace`] operation. Preparation, collection, locking, cleanup, validation, summaries, and every default are implemented once, in `base-benchmark`; the `base-benchmark` command calls the same operations.
-
 use bake::{Context, Error, Result};
 use base_benchmark::{
     Campaign, Cancellation, Mode, Prepared, RunRequest, Suite, Tree, Workspace, parse_cpus,

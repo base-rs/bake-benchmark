@@ -1,6 +1,6 @@
 # Releases
 
-## Unreleased
+## v0.1.0
 
 - Establish the repository and shared Base development tooling.
 - Record Bake-specific audit findings and the thin-adapter design.
