@@ -12,8 +12,8 @@ The user explicitly selected the two-repository split on 6 November 2026 and req
 
 ## Scope
 
-The published adapter, its dependency on the core, task registration/configuration, and documentation. The private `bake/` package is repository development automation, not an implemented benchmark provider.
+The published adapter, its dependency on the core, task registration/configuration, and documentation. The private `bake/` package is repository development automation and does not link the benchmark tasks.
 
 ## Validation
 
-Inspect core/adapter dependency graphs and code for reverse dependencies or duplicate semantic implementations. Once tasks exist, compare CLI/Bake evidence and errors under equivalent plans, test discovery of unpublished packages and explicitly configured standalone manifests, and exercise normal paths without Python. For the initial empty scaffold, verify honest status and documented dependency direction; task delegation remains unverified because no tasks exist yet.
+Inspect `cargo tree` for the adapter → core direction and the task functions for logic beyond argument translation, path resolution, and signal-guarded calls into `Workspace`. Task tests discover the registry and invoke every task by name against a fixture workspace, including an unpublished package. They also check that errors come from the shared implementation. The core's command tests exercise the same operations. A standalone workspace, such as a benchmark suite excluded from the main workspace, is selected with `--manifest-path`. Normal paths run without Python.

@@ -1,31 +1,29 @@
-# Bake Integration Plan
+# Bake Integration
 
-This is a proposal, not an implemented task provider. Add a real dependency on `base-benchmark` when a usable core API exists; do not introduce a sibling path dependency or fake no-op tasks merely to connect the initial scaffolds.
+## Tasks
 
-## Proposed tasks
+| Task | Core operation |
+| --- | --- |
+| `benchmark:list` | `Workspace::suites`: packages with `[package.metadata.base-benchmark]`, including unpublished packages. Nothing is built or run. |
+| `benchmark:prepare` | `Workspace::prepare`: labelled `--tree LABEL=PATH` source trees, baseline first, plus a layout replica by default for two or more trees. Writes `artifacts.json`. |
+| `benchmark:smoke` | `Workspace::smoke`: build the current tree and run every scenario once with its smoke arguments. |
+| `benchmark:run` | `Workspace::run`: collect a scenario from prepared artifacts in `screening` or `recorded` mode. |
+| `benchmark:summarize` | `summarize_directory`: regenerate `summary.json` from a complete campaign. |
 
-- `benchmark:list`: list explicitly configured packages/targets/scenarios without running workload code.
-- `benchmark:build`: delegate shared preparation of labelled trees/archives and optional downstream patch-override workloads, with common explicit build policy and identified normal/diagnostic artifacts. Include the planned baseline-copy rebuild control for separate-tree comparisons; finish all preparation before collection.
-- `benchmark:smoke`: run small correctness/failure checks with explicitly non-acceptance output.
-- `benchmark:run`: translate configuration into a core experiment plan for already frozen artifacts; delegate screening/recorded modes, randomized paired controls, placement, lock waiting/progress, collection, cleanup, persistence, and validation to the core.
-- `benchmark:summarize`: delegate completion checking and regenerated summaries to core APIs, retaining raw evidence.
+The planned `benchmark:build` became `benchmark:prepare`, because the operation also freezes executables, records their identity, and builds the layout replica. Relative paths are resolved against the Bake project root. `run` and `smoke` cancel the campaign on SIGINT, SIGTERM, or SIGHUP, so workload process groups are killed before the host lock is released.
 
-Exact task arguments, package metadata schema, compatibility requirements, and feature layout remain open. Registration should reuse ordinary `#[bake::task]`, namespacing, and dependency discovery rather than a new plugin registry.
+Registration uses ordinary `#[bake::task]` attributes and the crate-derived `benchmark:` namespace; there is no plugin registry. Discovery uses locked Cargo metadata rather than `bake_cargo::packages`, which deliberately filters for publishable packages. Historical `results/**/Cargo.toml` snapshots are never executed.
 
-## Discovery and preparation
+## Dependency
 
-Use locked Cargo metadata with explicit package/target opt-in, including `publish=false` workspace members. Permit an explicit list of standalone manifest paths for HTTP/Markdown-style suites. Never recursively execute historical `results/**/Cargo.toml` snapshots. `bake_cargo::packages` deliberately filters for publication and is not a benchmark inventory.
+`bake-benchmark` depends on `base-benchmark`, never the reverse. During initial development the dependency is a sibling path, `../base-benchmark`. Before this crate is merged with working CI or published, switch it to `base-benchmark`'s Git repository or a crates.io release.
 
-If a standalone CLI also needs Cargo discovery/build preparation, put reusable Bake-independent preparation APIs in `base-benchmark` instead of duplicating them in the adapter. Bake owns task registration, context/configuration translation, and presentation; it does not own a second measurement implementation. Bake JSON/NDJSON output may identify result artifacts but is not the child-sample evidence journal.
+Consumers add this crate to their private `bake/Cargo.toml`. It is never a dependency of workloads or published libraries. Integration through `base-project` should follow demonstrated use in more than one project.
 
-Consumer projects will add this provider to their private `bake/Cargo.toml`, regenerate task links, and keep it out of measured/public runtime dependencies. The core must remain usable without Bake. Future integration through `base-project` should follow demonstrated use, not make either published benchmark package depend on `base-project`.
+## Not yet covered
 
-The [scheduler review response](https://github.com/base-rs/base-benchmark/blob/main/reports/external-review-response.md) refines the plan: preparation may target several explicitly prepared trees and a downstream workload, not just this workspace. A core runner executes on the actual measuring host; record developer/collector and measurement host identities separately. A single host-side lock can span preparation followed by collection, with blocking cancellation-aware waiting/status; no builds overlap a measured phase. SSH deployment automation remains undecided. Bake must preserve core distinctions between smoke, non-acceptance screening, and recorded evidence, and between declared performance errors and invalid correctness/completion results.
+- Task options for capabilities the core does not yet implement: multi-process roles, downstream patch preparation, revision archives, and external comparator subjects.
+- History import, reporting, or a comparison UI; see the core's [history follow-up](https://github.com/base-rs/base-benchmark/blob/main/context/history.md).
+- Investigation record generation. Use the core's [investigation convention](https://github.com/base-rs/base-benchmark/blob/main/context/investigations.md) and template by hand.
 
-## Validation and adoption
-
-Historical import/reporting or a comparison UI is a [lower-priority core follow-up](https://github.com/base-rs/base-benchmark/blob/main/context/history.md), not part of the first task family. Any later Bake entry point should delegate to shared validated comparison APIs rather than implement a separate database, web server, or normalization/statistics pipeline.
-
-Use the core's [investigation record convention](https://github.com/base-rs/base-benchmark/blob/main/context/investigations.md) for adopted/rejected/deferred attempts, with raw evidence and rationale retained. A future Bake record helper may delegate to that convention and core metadata; do not create a parallel decision format or treat a rejected candidate as grounds to delete its samples.
-
-Implement the core first; migrate local HTML collection off Python, then test scheduler echo's multiprocess shape. Verify task discovery for unpublished workspace packages and explicit standalone manifests, no execution during listing, build/collection separation, and equivalent validation/results through CLI and Bake. Run normal paths without Python. Shared hosted CI tests correctness and failure behavior, not performance acceptance.
+Later entry points must delegate to shared core APIs rather than add a Bake-only runner, store, or statistics pipeline.

@@ -1,20 +1,32 @@
 # `bake-benchmark`
 
-Thin Rust Bake integration for [`base-benchmark`](https://github.com/base-rs/base-benchmark).
+Bake tasks for the shared Base benchmark tooling in [`base-benchmark`](https://github.com/base-rs/base-benchmark).
 
-**Status: planning scaffold, not a working task provider.** No `benchmark:*` tasks, cross-crate API integration, crates.io release, or downstream migration exists yet. The first release awaits implementation and review; repository setup does not publish a crate.
+The tasks are `benchmark:list`, `benchmark:prepare`, `benchmark:smoke`, `benchmark:run`, and `benchmark:summarize`. Each one translates its arguments into the same `base-benchmark` operation that the `base-benchmark` command uses. Preparation, collection, locking, cleanup, validation, and summaries are implemented once, in the core. No Python is involved.
 
-## Findings and direction
+**Status:** an initial, unreleased implementation, used by the `base-html` rendering benchmark. It currently depends on a sibling checkout of `base-benchmark` and needs a Git or registry dependency before it can be built elsewhere or published.
 
-- [Bake-specific findings and proposed tasks](reports/bake-integration.md).
-- [Full organization-wide audit](https://github.com/base-rs/base-benchmark/blob/main/reports/benchmarking-landscape.md).
-- [Integration plan](context/integration.md) and [architectural requirements](design/integration.md).
+## Usage
 
-The dependency direction will be `bake-benchmark` → `base-benchmark`. The latter owns records, measurement, collection, process supervision, validation, provenance, and statistics. This crate translates Bake configuration/tasks into those APIs; it must not maintain a second runner or require Python for normal workflows. Workloads and correctness checks remain project-specific.
+Add the tasks to a project's private Bake package:
+
+```sh
+cargo add --manifest-path bake/Cargo.toml bake-benchmark
+cargo bake --regenerate
+cargo bake benchmark:list
+cargo bake benchmark:smoke
+```
+
+See [Using the Shared Benchmark Tooling](https://github.com/base-rs/base-benchmark/blob/main/context/usage.md) for workloads, scenario configuration, and interpreting results, and `cargo bake help benchmark:run` for task options. Tasks return a compact JSON result (the campaign directory, summary path, evidence class, and warnings) and write progress and the human report to stderr.
+
+## Design and findings
+
+- [Integration](context/integration.md) and [requirements](design/integration.md).
+- [Bake-specific audit findings](reports/bake-integration.md).
 
 ## Development
 
-Install the [Bake launcher](https://github.com/base-rs/bake), then run `cargo bake test`. The private `bake/` package supplies shared Base development tasks. These development tasks are not the proposed benchmark task family. Cross-repository dependencies will be added when the core exposes an API to consume; the empty library intentionally has no fake integration.
+Install the [Bake launcher](https://github.com/base-rs/bake), then run `cargo bake test`. Task tests discover the registry and invoke each task by name against a fixture workspace. The private `bake/` package supplies shared Base development tasks and does not include the benchmark tasks.
 
 ## Releases
 
