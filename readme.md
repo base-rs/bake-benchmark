@@ -30,7 +30,7 @@ Install the [Bake launcher](https://github.com/base-rs/bake), then run `cargo ba
 
 ## Releases
 
-See [releases.md](releases.md). No releases yet.
+See [releases.md](releases.md).
 
 ## Contributing
 
