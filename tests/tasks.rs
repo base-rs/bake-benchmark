@@ -99,18 +99,23 @@ fn tasks_delegate_to_the_shared_workspace_operations() {
             ],
         )
         .unwrap();
-    assert_eq!(campaign["summary"]["rounds"], 2);
+    let summary_path = campaign["summary_path"].as_str().unwrap();
+    let summary: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(summary_path).unwrap()).unwrap();
+    assert_eq!(summary["rounds"], 2);
     assert!(
-        campaign["report"]
+        campaign["evidence"]
             .as_str()
             .unwrap()
             .starts_with("screening")
     );
+    assert!(campaign["warnings"].as_array().is_some());
+    assert!(campaign.get("report").is_none(), "results stay compact");
 
-    let summary = context
+    let regenerated = context
         .call("benchmark:summarize", &["target/campaign"])
         .unwrap();
-    assert_eq!(summary["summary"], campaign["summary"]);
+    assert_eq!(regenerated, campaign);
 
     let smoke = context
         .call(
@@ -118,7 +123,7 @@ fn tasks_delegate_to_the_shared_workspace_operations() {
             &["--lock", "lock", "--output", "target/smoke"],
         )
         .unwrap();
-    assert_eq!(smoke[0]["summary"]["mode"], "smoke");
+    assert!(smoke[0]["evidence"].as_str().unwrap().starts_with("smoke"));
     let default_mode = context
         .call(
             "benchmark:run",
@@ -133,7 +138,12 @@ fn tasks_delegate_to_the_shared_workspace_operations() {
             ],
         )
         .unwrap();
-    assert_eq!(default_mode["summary"]["mode"], "screening");
+    assert!(
+        default_mode["evidence"]
+            .as_str()
+            .unwrap()
+            .starts_with("screening")
+    );
 }
 
 #[test]
