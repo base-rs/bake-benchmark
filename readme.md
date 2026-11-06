@@ -17,7 +17,7 @@ cargo bake benchmark:list
 cargo bake benchmark:smoke
 ```
 
-See [Using the Shared Benchmark Tooling](https://github.com/base-rs/base-benchmark/blob/main/context/usage.md) for workloads, scenario configuration, and interpreting results, and `cargo bake help benchmark:run` for task options. Tasks return a compact JSON result (the campaign directory, summary path, evidence class, and warnings) and write progress and the human report to stderr.
+See [Using the Shared Benchmark Tooling](https://github.com/base-rs/base-benchmark/blob/main/context/usage.md) for workloads, scenario configuration, and interpreting results, and run `cargo bake benchmark:run --help` in a project that uses the tasks for their options. Defaults, such as the mode, round count, timeout, lock path, and stack padding, are resolved by the core, so the command and the tasks behave the same. Tasks return a compact JSON result (the campaign directory, summary path, evidence class, and warnings) and write progress and the human report to stderr.
 
 ## Design and findings
 

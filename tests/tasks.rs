@@ -146,46 +146,180 @@ fn tasks_delegate_to_the_shared_workspace_operations() {
     );
 }
 
+fn error(context: &mut bake::Context, task: &str, arguments: &[&str]) -> String {
+    context.call(task, arguments).unwrap_err().to_string()
+}
+
 #[test]
 fn task_errors_come_from_the_shared_implementation() {
     let directory = tempfile::tempdir().unwrap();
     let mut context = context(directory.path());
+    assert!(error(&mut context, "benchmark:list", &[]).contains("cargo metadata failed"));
+    assert!(error(&mut context, "benchmark:prepare", &[]).contains("cargo metadata failed"));
     assert!(
-        context
-            .call("benchmark:list", &[])
-            .unwrap_err()
-            .to_string()
+        error(&mut context, "benchmark:smoke", &["--lock", "lock"])
             .contains("cargo metadata failed")
     );
-    assert!(context.call("benchmark:prepare", &[]).is_err());
     assert!(
-        context
-            .call("benchmark:smoke", &["--lock", "lock"])
-            .is_err()
+        error(
+            &mut context,
+            "benchmark:run",
+            &["work", "--artifacts", "a.json", "--cpus", "x"]
+        )
+        .contains("invalid CPU list")
     );
     assert!(
-        context
-            .call(
-                "benchmark:run",
-                &["work", "--artifacts", "a.json", "--cpus", "x"]
-            )
-            .unwrap_err()
-            .to_string()
-            .contains("invalid CPU list")
+        error(
+            &mut context,
+            "benchmark:run",
+            &["work", "--artifacts", "a.json", "--lock", "lock"]
+        )
+        .contains("cargo metadata failed")
+    );
+    assert!(error(&mut context, "benchmark:summarize", &["missing"]).contains("metadata.json"));
+}
+
+#[test]
+fn standalone_manifests_absolute_paths_and_recorded_prerequisites() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("project");
+    // A suite in its own workspace, as for benchmarks excluded from a project's main workspace.
+    fixture(&root.join("suite"));
+    let mut context = context(&root);
+    let manifest = ["--manifest-path", "suite/Cargo.toml"];
+    let suites = context.call("benchmark:list", &manifest).unwrap();
+    assert_eq!(suites[0]["scenarios"][0]["baseline"], "reference");
+
+    let output = directory.path().join("prepared");
+    let output = output.to_str().unwrap();
+    context
+        .call(
+            "benchmark:prepare",
+            &["--manifest-path", "suite/Cargo.toml", "--output", output],
+        )
+        .unwrap();
+    let artifacts = format!("{output}/artifacts.json");
+    let recorded = error(
+        &mut context,
+        "benchmark:run",
+        &[
+            "work",
+            "--artifacts",
+            &artifacts,
+            "--manifest-path",
+            "suite/Cargo.toml",
+            "--mode",
+            "recorded",
+            "--lock",
+            "lock",
+        ],
     );
     assert!(
-        context
-            .call(
-                "benchmark:run",
-                &["work", "--artifacts", "a.json", "--lock", "lock"]
-            )
-            .is_err()
+        recorded.contains("recorded campaigns need explicit CPU placement"),
+        "{recorded}"
     );
-    assert!(
-        context
-            .call("benchmark:summarize", &["missing"])
-            .unwrap_err()
-            .to_string()
-            .contains("metadata.json")
+
+    // An unavailable perf event fails the sample; the request still reaches the plan.
+    let campaign = directory.path().join("perf");
+    let arguments = [
+        "work",
+        "--artifacts",
+        &artifacts,
+        "--manifest-path",
+        "suite/Cargo.toml",
+        "--rounds",
+        "1",
+        "--perf-event",
+        "not-an-event:u",
+        "--stack-padding",
+        "false",
+        "--lock",
+        "lock",
+        "--output",
+        campaign.to_str().unwrap(),
+    ];
+    assert!(context.call("benchmark:run", &arguments).is_err());
+    let metadata: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(campaign.join("metadata.json")).unwrap()).unwrap();
+    assert_eq!(metadata["plan"]["perf_events"][0], "not-an-event:u");
+    assert_eq!(metadata["plan"]["stack_padding"], false);
+}
+
+fn cli(arguments: &[&str]) -> (bool, String) {
+    let mut errors = Vec::new();
+    let arguments = arguments
+        .iter()
+        .map(|argument| (*argument).to_owned())
+        .collect();
+    let code = base_benchmark::cli::main(arguments, &mut Vec::new(), &mut errors);
+    (
+        code == std::process::ExitCode::SUCCESS,
+        String::from_utf8(errors).unwrap(),
+    )
+}
+
+/// The command and the task produce the same summary and the same errors from equivalent plans.
+#[test]
+fn the_command_and_the_tasks_agree_under_equivalent_plans() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("project");
+    fixture(&root);
+    let mut context = context(&root);
+    let path = |name: &str| directory.path().join(name).display().to_string();
+    let manifest = root.join("Cargo.toml").display().to_string();
+    context
+        .call("benchmark:prepare", &["--output", &path("prepared")])
+        .unwrap();
+    let artifacts = path("prepared/artifacts.json");
+    let lock = path("lock");
+    let plan = [
+        "--artifacts",
+        &artifacts,
+        "--rounds",
+        "2",
+        "--seed",
+        "11",
+        "--cpus",
+        "0",
+        "--lock",
+        &lock,
+    ];
+
+    let mut task = vec!["work", "--output"];
+    let task_output = path("task");
+    task.push(&task_output);
+    task.extend(plan);
+    context.call("benchmark:run", &task).unwrap();
+    let mut command = vec!["run", "work", "--manifest-path", &manifest, "--output"];
+    let command_output = path("command");
+    command.push(&command_output);
+    command.extend(plan);
+    let (succeeded, errors) = cli(&command);
+    assert!(succeeded, "{errors}");
+    let summary = |output: &str| -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(Path::new(output).join("summary.json")).unwrap())
+            .unwrap()
+    };
+    assert_eq!(summary(&task_output), summary(&command_output));
+
+    let invalid = [
+        "work",
+        "--artifacts",
+        &artifacts,
+        "--mode",
+        "recorded",
+        "--lock",
+        &lock,
+    ];
+    let task_error = error(&mut context, "benchmark:run", &invalid);
+    let mut command = vec!["run", "--manifest-path", &manifest];
+    command.extend(invalid);
+    let (succeeded, command_error) = cli(&command);
+    assert!(!succeeded);
+    let message = task_error.trim_start_matches("benchmark:run: ");
+    assert!(message.contains("recorded campaigns need"), "{message}");
+    assert_eq!(
+        command_error.trim_end(),
+        format!("base-benchmark: {message}")
     );
 }

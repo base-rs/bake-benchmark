@@ -5,12 +5,12 @@
 | Task | Core operation |
 | --- | --- |
 | `benchmark:list` | `Workspace::suites`: packages with `[package.metadata.base-benchmark]`, including unpublished packages. Nothing is built or run. |
-| `benchmark:prepare` | `Workspace::prepare`: labelled `--tree LABEL=PATH` source trees, baseline first, plus a layout replica by default for two or more trees. Writes `artifacts.json`. |
+| `benchmark:prepare` | `Workspace::prepare`: labelled `--tree LABEL=PATH` source trees, baseline first, plus `--replicas N` layout replicas of the baseline (one by default for two or more trees). Writes `artifacts.json`. |
 | `benchmark:smoke` | `Workspace::smoke`: build the current tree and run every scenario once with its smoke arguments. |
 | `benchmark:run` | `Workspace::run`: collect a scenario from prepared artifacts in `screening` or `recorded` mode. |
 | `benchmark:summarize` | `summarize_directory`: regenerate `summary.json` from a complete campaign. |
 
-The planned `benchmark:build` became `benchmark:prepare`, because the operation also freezes executables, records their identity, and builds the layout replica. Relative paths are resolved against the Bake project root. `run` and `smoke` cancel the campaign on SIGINT, SIGTERM, or SIGHUP, so workload process groups are killed before the host lock is released.
+The planned `benchmark:build` became `benchmark:prepare`, because the operation also freezes executables, records their identity, and builds the layout replica. Relative paths are resolved against the Bake project root. Absolute paths are used as they are, and `--manifest-path` selects a standalone workspace, such as a benchmark suite excluded from the main workspace. `prepare`, `run`, and `smoke` cancel on the first SIGINT, SIGTERM, or SIGHUP, so builds stop between trees and workload process groups are killed before the host lock is released; a second signal exits immediately. Tasks pass unset options through, and the core resolves every default, so a task and the `base-benchmark` command given equivalent options produce the same plan, summary, and errors.
 
 Registration uses ordinary `#[bake::task]` attributes and the crate-derived `benchmark:` namespace; there is no plugin registry. Discovery uses locked Cargo metadata rather than `bake_cargo::packages`, which deliberately filters for publishable packages. Historical `results/**/Cargo.toml` snapshots are never executed.
 
