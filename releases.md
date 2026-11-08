@@ -1,5 +1,9 @@
 # Releases
 
+## Unreleased
+
+- Breaking: update to `base-benchmark` 0.3, whose types the tasks return; see its [release notes](https://github.com/base-rs/base-benchmark/blob/main/releases.md#v030). `Summary`, reached through `Campaign::summary`, and the summary types within it are `#[non_exhaustive]`, and `Summary` gains `overlays`, so the reports and `summary.json` of overlaid campaigns state the overlaid package and each artifact's lockfile changes. The `warnings` the tasks return name every metric with the same hazard in one warning, build layout first. `benchmark:prepare` signalled while a build runs fails as cancelled and writes no manifest, rather than succeeding once Cargo finishes the build, and reads each tree's Cargo metadata again with network access when reading it offline fails, rather than recording its path dependencies as unknown. With `--host`, a task reports a program that fails once it is cancelled as cancelled, and a host command that fails before creating its output with the host's error alone.
+
 ## v0.2.0
 
 - Breaking: update to `base-benchmark` 0.2, whose types the tasks return. `benchmark:prepare` takes `--scenario`, repeatable, to prepare only the feature sets those scenarios need, and `--overlay true` to build every tree with this workspace's workload package.
