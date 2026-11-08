@@ -27,7 +27,7 @@ fn remote_tasks_forward_their_options_and_return_what_local_tasks_return() {
         &directory.path().join("ssh"),
         "#!/bin/sh\nshift\nexec \"$@\"\n",
     );
-    // SAFETY: no other thread exists yet: libtest runs this test on its own thread, and nothing else has started one. The environment is never written again.
+    // SAFETY: the only other thread is libtest's main thread, which waits for this test and never touches the environment; no task has started a thread yet, and the environment is never written again.
     unsafe { std::env::set_var("BASE_BENCHMARK_SSH", &ssh) };
 
     let root = directory.path().join("project");
