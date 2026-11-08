@@ -120,7 +120,7 @@ pub fn prepare(
         manifest_path.unwrap_or_else(|| PathBuf::from("Cargo.toml")),
     );
     if let Some(remote) = remote(host, remote_directory, remote_program) {
-        // A termination signal cancels the host\'s command, whose output is still copied back.
+        // A termination signal cancels the host's command, whose output is still copied back.
         let cancellation = Cancellation::new();
         let _signals = cancellation.on_termination_signals();
         let trees: Vec<String> = tree
@@ -180,9 +180,10 @@ pub fn smoke(
     >,
     #[bake(help = "New output directory; defaults to target/base-benchmark/smoke-TIME.")]
     output: Option<PathBuf>,
-    #[bake(help = "Host-wide lock file; defaults to /tmp/base-benchmark-host.lock.")] lock: Option<
-        PathBuf,
-    >,
+    #[bake(
+        help = "Host-wide lock file; defaults to /tmp/base-benchmark-host.lock. With --host, a path on the host, relative to the remote user's home."
+    )]
+    lock: Option<PathBuf>,
     #[bake(help = "Workspace manifest; defaults to Cargo.toml in the project root.")] manifest_path: Option<PathBuf>,
     #[bake(help = "Smoke on this SSH host, mirroring local paths there.")] host: Option<String>,
     #[bake(
@@ -196,13 +197,20 @@ pub fn smoke(
 ) -> Result<Vec<Campaign>> {
     let output = output.map(|output| resolve(context, output));
     if let Some(remote) = remote(host, remote_directory, remote_program) {
-        // A termination signal cancels the host\'s command, whose output is still copied back.
+        // A termination signal cancels the host's command, whose output is still copied back.
         let cancellation = Cancellation::new();
         let _signals = cancellation.on_termination_signals();
         let manifest_path = resolve(
             context,
             manifest_path.unwrap_or_else(|| PathBuf::from("Cargo.toml")),
         );
+        let scenarios: Vec<String> = Workspace::new(manifest_path.clone())
+            .suite(package.as_deref())
+            .map_err(failed)?
+            .scenarios
+            .into_iter()
+            .map(|scenario| scenario.name)
+            .collect();
         return remote
             .execute(
                 "smoke",
@@ -220,25 +228,13 @@ pub fn smoke(
                 &cancellation,
             )
             .and_then(|outcome| {
-                eprint!("{}", outcome.stdout);
-                // Each scenario's campaign is a directory of the output; the prepared artifacts are hidden.
-                let mut directories: Vec<PathBuf> = std::fs::read_dir(&outcome.output)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-                    .filter(|path| {
-                        path.is_dir()
-                            && !path
-                                .file_name()
-                                .is_some_and(|name| name.to_string_lossy().starts_with('.'))
-                    })
-                    .collect();
-                directories.sort();
-                directories
+                // Each scenario's campaign is named after it, in declaration order, as a local smoke run returns them.
+                scenarios
                     .iter()
-                    .map(|directory| summarize_directory(directory))
-                    .collect()
+                    .map(|scenario| summarize_directory(&outcome.output.join(scenario)))
+                    .collect::<std::io::Result<Vec<_>>>()
             })
+            .map(report_all)
             .map_err(failed);
     }
     let cancellation = Cancellation::new();
@@ -253,10 +249,15 @@ pub fn smoke(
             &mut std::io::stderr(),
         )
         .map_err(failed)?;
+    Ok(report_all(campaigns))
+}
+
+/// Write each campaign's directory and report to stderr, as every collecting task does.
+fn report_all(campaigns: Vec<Campaign>) -> Vec<Campaign> {
     for campaign in &campaigns {
         eprintln!("{}\n{}", campaign.output.display(), campaign.report);
     }
-    Ok(campaigns)
+    campaigns
 }
 
 /// Collect a scenario from prepared artifacts in seeded random rounds under the host lock. The report is written to stderr; the result describes the campaign directory, evidence class, and warnings.
@@ -281,9 +282,10 @@ pub fn run(
     cpus: Option<String>,
     #[bake(help = "Whole-process perf stat event; repeat for several.")] perf_event: Vec<String>,
     #[bake(help = "Seconds before a workload process is killed; defaults to 300.")] timeout_seconds: Option<u64>,
-    #[bake(help = "Host-wide lock file; defaults to /tmp/base-benchmark-host.lock.")] lock: Option<
-        PathBuf,
-    >,
+    #[bake(
+        help = "Host-wide lock file; defaults to /tmp/base-benchmark-host.lock. With --host, a path on the host, relative to the remote user's home."
+    )]
+    lock: Option<PathBuf>,
     #[bake(help = "New output directory; defaults to target/base-benchmark/SCENARIO-MODE-TIME.")]
     output: Option<PathBuf>,
     #[bake(help = "The predeclared interpretation rule. Required for recorded runs.")]
@@ -307,8 +309,15 @@ pub fn run(
     )]
     remote_program: Option<String>,
 ) -> Result<Campaign> {
+    // Checked here, so that a remote run fails before contacting the host, as a local one does.
+    let placement = cpus
+        .as_deref()
+        .map(parse_cpus)
+        .transpose()
+        .map_err(failed)?
+        .unwrap_or_default();
     if let Some(remote) = remote(host, remote_directory, remote_program) {
-        // A termination signal cancels the host\'s command, whose output is still copied back.
+        // A termination signal cancels the host's command, whose output is still copied back.
         let cancellation = Cancellation::new();
         let _signals = cancellation.on_termination_signals();
         let manifest_path = resolve(
@@ -349,10 +358,8 @@ pub fn run(
                 ),
                 &cancellation,
             )
-            .and_then(|outcome| {
-                eprint!("{}", outcome.stdout);
-                summarize_directory(&outcome.output)
-            })
+            .and_then(|outcome| summarize_directory(&outcome.output))
+            .map(|campaign| report_all(vec![campaign]).remove(0))
             .map_err(failed);
     }
     let request = RunRequest {
@@ -360,12 +367,7 @@ pub fn run(
         mode,
         rounds,
         seed,
-        cpus: cpus
-            .as_deref()
-            .map(parse_cpus)
-            .transpose()
-            .map_err(failed)?
-            .unwrap_or_default(),
+        cpus: placement,
         perf_events: perf_event,
         timeout: timeout_seconds.map(Duration::from_secs),
         lock: lock.map(|lock| resolve(context, lock)),

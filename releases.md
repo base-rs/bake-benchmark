@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Update to `base-benchmark` 0.2. `benchmark:prepare` takes `--scenario`, repeatable, to prepare only the feature sets those scenarios need, and `--overlay true` to build every tree with this workspace's workload package.
+- Breaking: update to `base-benchmark` 0.2, whose types the tasks return. `benchmark:prepare` takes `--scenario`, repeatable, to prepare only the feature sets those scenarios need, and `--overlay true` to build every tree with this workspace's workload package.
 - Add `--host`, `--remote-directory`, and `--remote-program` to `benchmark:prepare`, `benchmark:run`, and `benchmark:smoke`, to run them on a measuring host over SSH and return the downloaded results.
 
 ## v0.1.0
