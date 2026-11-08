@@ -60,6 +60,10 @@ fn tasks_delegate_to_the_shared_workspace_operations() {
                 "same=.",
                 "--output",
                 "target/prepared",
+                "--scenario",
+                "work",
+                "--overlay",
+                "false",
             ],
         )
         .unwrap();
