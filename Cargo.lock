@@ -138,9 +138,9 @@ dependencies = [
 
 [[package]]
 name = "base-benchmark"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8aa8fc392ccb2b482c52e712539a83617c894464b697ed10b200506765dd041d"
+checksum = "ea3f4d14d2881f9d0a7afaaba194c107cdcd4ba530942a8a3a669ff5fe107250"
 dependencies = [
  "nix",
  "serde",

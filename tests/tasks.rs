@@ -4,8 +4,14 @@
 use bake_benchmark as _;
 use std::path::Path;
 
-/// A workload that prints a valid record; `fast` lowers its wall time.
+/// A workload that prints a valid record; `fast` lowers its wall time. With `serve`, it is a service instead: it prints `listening on 127.0.0.1:PID` and waits to be stopped.
 const MAIN: &str = r##"fn main() {
+    if std::env::args().any(|argument| argument == "serve") {
+        println!("listening on 127.0.0.1:{}", std::process::id());
+        loop {
+            std::thread::park();
+        }
+    }
     let fast = std::env::args().any(|argument| argument == "fast");
     let wall = if fast { 900 } else { 1000 };
     println!(r#"{{"schema":"base-benchmark/process-record","version":1,"workload":"fixture","parameters":{{}},"samples":[{{"operations":10,"metrics":[{{"name":"wall_time","unit":"nanoseconds","phase":"measured","source":"wall","direction":"lower_is_better","measurement":{{"kind":"total","value":{wall}}}}}]}}]}}"#);
@@ -23,9 +29,45 @@ name = "work"
 variants = [{ name = "reference" }, { name = "fast", arguments = ["fast"] }]
 "#;
 
+/// A multi-process scenario: the subject serves, and an external program drives it.
+const ROLES: &str = r#"[package]
+name = "fixture"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[package.metadata.base-benchmark.scenario]]
+name = "hello"
+arguments = ["serve"]
+
+[[package.metadata.base-benchmark.scenario.role]]
+name = "server"
+kind = "service"
+subject = true
+ready = "listening on {address}"
+
+[[package.metadata.base-benchmark.scenario.role]]
+name = "client"
+kind = "driver"
+external = "load"
+arguments = ["{server.address}"]
+"#;
+
+/// The driver: it reports its version, or marks its window and prints a valid record.
+const DRIVER: &str = r##"#!/bin/sh
+if [ "$1" = --version ]; then echo 'load 1.0'; exit 0; fi
+echo 'base-benchmark window start'
+echo 'base-benchmark window stop'
+echo '{"schema":"base-benchmark/process-record","version":1,"workload":"fixture","parameters":{},"samples":[{"operations":10,"metrics":[{"name":"wall_time","unit":"nanoseconds","phase":"measured","source":"wall","direction":"lower_is_better","measurement":{"kind":"total","value":1000}}]}]}'
+"##;
+
 fn fixture(path: &Path) {
+    fixture_with(path, MANIFEST);
+}
+
+fn fixture_with(path: &Path, manifest: &str) {
     std::fs::create_dir_all(path.join("src")).unwrap();
-    std::fs::write(path.join("Cargo.toml"), MANIFEST).unwrap();
+    std::fs::write(path.join("Cargo.toml"), manifest).unwrap();
     std::fs::write(
         path.join("Cargo.lock"),
         "version = 4\n\n[[package]]\nname = \"fixture\"\nversion = \"0.1.0\"\n",
@@ -348,6 +390,142 @@ fn the_command_and_the_tasks_agree_under_equivalent_plans() {
     assert_eq!(
         command_error.trim_end(),
         format!("base-benchmark: {message}")
+    );
+}
+
+/// External programs and role placement reach the plan, with local program paths resolved against the project root, as the command given the same programs plans them.
+#[test]
+fn multi_process_scenarios_take_external_programs_and_role_cpus() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("project");
+    fixture_with(&root, ROLES);
+    let driver = root.join("tools/load");
+    std::fs::create_dir_all(driver.parent().unwrap()).unwrap();
+    std::fs::write(&driver, DRIVER).unwrap();
+    std::fs::set_permissions(&driver, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut context = context(&root);
+
+    // Smoke runs every scenario, so it needs the driver's program too.
+    let missing = error(&mut context, "benchmark:smoke", &["--lock", "lock"]);
+    assert!(
+        missing.contains("give its path with --program load=PATH"),
+        "{missing}"
+    );
+    let smoke = context
+        .call(
+            "benchmark:smoke",
+            &["--lock", "lock", "--program", "load=tools/load"],
+        )
+        .unwrap();
+    assert!(smoke[0]["evidence"].as_str().unwrap().starts_with("smoke"));
+
+    let path = |name: &str| directory.path().join(name).display().to_string();
+    context
+        .call("benchmark:prepare", &["--output", &path("prepared")])
+        .unwrap();
+    let artifacts = path("prepared/artifacts.json");
+    let lock = path("lock");
+    let cpu = allowed_cpu();
+    let client = format!("client={cpu}");
+    let server = format!("server={cpu}");
+    let plan = [
+        "--artifacts",
+        &artifacts,
+        "--rounds",
+        "1",
+        "--seed",
+        "3",
+        "--role-cpus",
+        &client,
+        "--role-cpus",
+        &server,
+        "--lock",
+        &lock,
+    ];
+    let mut task = vec!["hello", "--program", "load=tools/load", "--output"];
+    let task_output = path("task");
+    task.push(&task_output);
+    task.extend(plan);
+    context.call("benchmark:run", &task).unwrap();
+
+    let manifest = root.join("Cargo.toml").display().to_string();
+    let program = format!("load={}", driver.display());
+    let command_output = path("command");
+    let mut command = vec![
+        "run",
+        "hello",
+        "--manifest-path",
+        &manifest,
+        "--program",
+        &program,
+        "--output",
+        &command_output,
+    ];
+    command.extend(plan);
+    let (succeeded, errors) = cli(&command);
+    assert!(succeeded, "{errors}");
+    let plan = |output: &str| -> serde_json::Value {
+        let mut metadata: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(Path::new(output).join("metadata.json")).unwrap(),
+        )
+        .unwrap();
+        metadata["plan"]
+            .as_object_mut()
+            .unwrap()
+            .remove("invocation");
+        metadata["plan"].take()
+    };
+    let planned = plan(&task_output);
+    assert_eq!(planned, plan(&command_output));
+    assert_eq!(
+        planned["programs"][0]["path"],
+        driver.canonicalize().unwrap().display().to_string()
+    );
+    assert_eq!(planned["programs"][0]["version"], "load 1.0");
+    let cpu: usize = cpu.parse().unwrap();
+    assert_eq!(planned["roles"][0]["cpus"], serde_json::json!([cpu]));
+    assert_eq!(planned["roles"][1]["cpus"], serde_json::json!([cpu]));
+
+    // Malformed and repeated assignments fail as the command fails.
+    for invalid in [
+        ["--program", "load"],
+        ["--program", "=tools/load"],
+        ["--role-cpus", "client"],
+        ["--role-cpus", "client=x"],
+    ]
+    .iter()
+    .map(|option| option.to_vec())
+    .chain([vec!["--program", "load=a", "--program", "load=b"]])
+    {
+        let mut task = vec!["hello", "--artifacts", &artifacts, "--lock", &lock];
+        task.extend(&invalid);
+        let task_error = error(&mut context, "benchmark:run", &task);
+        let mut command = vec!["run", "--manifest-path", &manifest];
+        command.extend(task);
+        let (succeeded, command_error) = cli(&command);
+        assert!(!succeeded);
+        assert_eq!(
+            command_error.trim_end(),
+            task_error.replacen("benchmark:run", "base-benchmark", 1),
+            "{invalid:?}"
+        );
+    }
+    let repeated = error(
+        &mut context,
+        "benchmark:smoke",
+        &[
+            "--lock",
+            "lock",
+            "--program",
+            "load=a",
+            "--program",
+            "load=b",
+        ],
+    );
+    assert!(
+        repeated.ends_with("--program load was given more than once"),
+        "{repeated}"
     );
 }
 
