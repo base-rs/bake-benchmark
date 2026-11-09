@@ -9,6 +9,7 @@ use base_benchmark::{
     ArtifactManifest, Campaign, Cancellation, Mode, PrepareRequest, Prepared, RunRequest, Suite,
     Tree, Workspace, parse_cpus, remote::Remote, summarize_directory,
 };
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -64,6 +65,51 @@ fn options(
 
 fn display(path: Option<PathBuf>) -> Option<String> {
     path.map(|path| path.display().to_string())
+}
+
+/// Split `NAME=VALUE`, where neither may be empty, as the command does.
+fn assignment<'a>(value: &'a str, form: &str) -> Result<(&'a str, &'a str)> {
+    value
+        .split_once('=')
+        .filter(|(name, value)| !name.is_empty() && !value.is_empty())
+        .ok_or_else(|| Error::new(format!("expected {form}, got {value:?}")))
+}
+
+/// Each `--program NAME=PATH`, with its path as given, refusing a name given twice, as the command does.
+fn parse_programs(values: &[String]) -> Result<BTreeMap<&str, &str>> {
+    let mut programs = BTreeMap::new();
+    for value in values {
+        let (name, path) = assignment(value, "NAME=PATH")?;
+        if programs.insert(name, path).is_some() {
+            return Err(Error::new(format!(
+                "--program {name} was given more than once"
+            )));
+        }
+    }
+    Ok(programs)
+}
+
+/// The workspace with each external program, its path resolved against the project root, since it is a path on this host.
+fn with_programs(
+    context: &Context,
+    mut workspace: Workspace,
+    programs: BTreeMap<&str, &str>,
+) -> Workspace {
+    for (name, path) in programs {
+        workspace = workspace.with_program(name, resolve(context, path));
+    }
+    workspace
+}
+
+/// Each `--role-cpus ROLE=CPUS` as the command reads it.
+fn parse_role_cpus(values: &[String]) -> Result<BTreeMap<String, Vec<usize>>> {
+    values
+        .iter()
+        .map(|value| {
+            let (role, cpus) = assignment(value, "ROLE=CPUS")?;
+            Ok((role.to_owned(), parse_cpus(cpus).map_err(failed)?))
+        })
+        .collect()
 }
 
 /// List workspace packages that declare `[package.metadata.base-benchmark]` scenarios, including unpublished packages, with resolved scenario defaults. Nothing is built or run.
@@ -184,6 +230,10 @@ pub fn smoke(
         help = "Host-wide lock file; defaults to /tmp/base-benchmark-host.lock. With --host, a path on the host, relative to the remote user's home."
     )]
     lock: Option<PathBuf>,
+    #[bake(
+        help = "NAME=PATH of an external program that a scenario's role runs; repeat for each. With --host, a path on the host, relative to the remote user's home."
+    )]
+    program: Vec<String>,
     #[bake(help = "Workspace manifest; defaults to Cargo.toml in the project root.")] manifest_path: Option<PathBuf>,
     #[bake(help = "Smoke on this SSH host, mirroring local paths there.")] host: Option<String>,
     #[bake(
@@ -196,6 +246,8 @@ pub fn smoke(
     remote_program: Option<String>,
 ) -> Result<Vec<Campaign>> {
     let output = output.map(|output| resolve(context, output));
+    // Checked here, so that a remote smoke run fails before contacting the host, as a local one does.
+    let programs = parse_programs(&program)?;
     if let Some(remote) = remote(host, remote_directory, remote_program) {
         // A termination signal cancels the host's command, whose output is still copied back.
         let cancellation = Cancellation::new();
@@ -223,7 +275,8 @@ pub fn smoke(
                         // The lock is the host's, named as it is.
                         ("lock", display(lock)),
                     ],
-                    &[],
+                    // So are external programs.
+                    &[("program", &program)],
                 ),
                 &cancellation,
             )
@@ -240,7 +293,7 @@ pub fn smoke(
     let cancellation = Cancellation::new();
     let _signals = cancellation.on_termination_signals();
     let lock = lock.map(|lock| resolve(context, lock));
-    let campaigns = workspace(context, manifest_path)
+    let campaigns = with_programs(context, workspace(context, manifest_path), programs)
         .smoke(
             package.as_deref(),
             output,
@@ -277,11 +330,25 @@ pub fn run(
     )]
     seed: Option<u64>,
     #[bake(
-        help = "CPU list for every workload process, such as 2 or 2,4-5. Required for recorded runs."
+        help = "CPU list for every workload process of a single-process scenario, such as 2 or 2,4-5. Required for recorded runs."
     )]
     cpus: Option<String>,
-    #[bake(help = "Whole-process perf stat event; repeat for several.")] perf_event: Vec<String>,
-    #[bake(help = "Seconds before a workload process is killed; defaults to 300.")] timeout_seconds: Option<u64>,
+    #[bake(
+        help = "ROLE=CPUS, such as server=2,3, pinning a multi-process scenario's role; repeat for each role. Recorded runs need every role placed."
+    )]
+    role_cpus: Vec<String>,
+    #[bake(
+        help = "NAME=PATH of an external program that a scenario's role runs; repeat for each. With --host, a path on the host, relative to the remote user's home."
+    )]
+    program: Vec<String>,
+    #[bake(
+        help = "Whole-process perf stat event for a single-process scenario; repeat for several."
+    )]
+    perf_event: Vec<String>,
+    #[bake(
+        help = "Seconds before a workload process, or a multi-process scenario's session, is killed; defaults to 300."
+    )]
+    timeout_seconds: Option<u64>,
     #[bake(
         help = "Host-wide lock file; defaults to /tmp/base-benchmark-host.lock. With --host, a path on the host, relative to the remote user's home."
     )]
@@ -309,13 +376,15 @@ pub fn run(
     )]
     remote_program: Option<String>,
 ) -> Result<Campaign> {
-    // Checked here, so that a remote run fails before contacting the host, as a local one does.
+    // Checked here, in the command's order, so that a remote run fails before contacting the host, as a local one does.
+    let programs = parse_programs(&program)?;
     let placement = cpus
         .as_deref()
         .map(parse_cpus)
         .transpose()
         .map_err(failed)?
         .unwrap_or_default();
+    let role_placement = parse_role_cpus(&role_cpus)?;
     if let Some(remote) = remote(host, remote_directory, remote_program) {
         // A termination signal cancels the host's command, whose output is still copied back.
         let cancellation = Cancellation::new();
@@ -354,7 +423,12 @@ pub fn run(
                             stack_padding.map(|padding| padding.to_string()),
                         ),
                     ],
-                    &[("perf-event", &perf_event)],
+                    // External programs are the host's, named as they are.
+                    &[
+                        ("role-cpus", &role_cpus),
+                        ("program", &program),
+                        ("perf-event", &perf_event),
+                    ],
                 ),
                 &cancellation,
             )
@@ -368,6 +442,7 @@ pub fn run(
         rounds,
         seed,
         cpus: placement,
+        role_cpus: role_placement,
         perf_events: perf_event,
         timeout: timeout_seconds.map(Duration::from_secs),
         lock: lock.map(|lock| resolve(context, lock)),
@@ -380,7 +455,7 @@ pub fn run(
     };
     let cancellation = Cancellation::new();
     let _signals = cancellation.on_termination_signals();
-    let campaign = workspace(context, manifest_path)
+    let campaign = with_programs(context, workspace(context, manifest_path), programs)
         .run(request, &cancellation, &mut std::io::stderr())
         .map_err(failed)?;
     eprintln!("{}\n{}", campaign.output.display(), campaign.report);

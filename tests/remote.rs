@@ -172,6 +172,14 @@ fn remote_tasks_forward_their_options_and_return_what_local_tasks_return() {
             "1",
             "--cpus",
             "0,2",
+            "--role-cpus",
+            "client=1",
+            "--role-cpus",
+            "server=2-3",
+            "--program",
+            "load=tools/load",
+            "--program",
+            "other=/opt/other",
             "--timeout-seconds",
             "60",
             "--perf-event",
@@ -222,6 +230,15 @@ fn remote_tasks_forward_their_options_and_return_what_local_tasks_return() {
             "true",
             "--stack-padding",
             "false",
+            "--role-cpus",
+            "client=1",
+            "--role-cpus",
+            "server=2-3",
+            // External programs are the host's, so they pass unchanged, neither resolved nor mirrored.
+            "--program",
+            "load=tools/load",
+            "--program",
+            "other=/opt/other",
             "--perf-event",
             "instructions",
             "--perf-event",
@@ -249,6 +266,8 @@ fn remote_tasks_forward_their_options_and_return_what_local_tasks_return() {
             "fixture",
             "--lock",
             "lock",
+            "--program",
+            "load=tools/load",
             "--output",
             "target/remote-smoke",
         ],
@@ -266,6 +285,8 @@ fn remote_tasks_forward_their_options_and_return_what_local_tasks_return() {
             &mirror("target/remote-smoke"),
             "--lock",
             "lock",
+            "--program",
+            "load=tools/load",
         ]
     );
     let outputs: Vec<_> = campaigns
@@ -299,6 +320,42 @@ fn remote_tasks_forward_their_options_and_return_what_local_tasks_return() {
         error.to_string().contains("benchmark:run: invalid CPU"),
         "{error}"
     );
+
+    // So do malformed role placements and external programs.
+    for (task, option, message) in [
+        (
+            "benchmark:run",
+            ["--role-cpus", "client"],
+            "expected ROLE=CPUS, got \"client\"",
+        ),
+        ("benchmark:run", ["--role-cpus", "client=x"], "invalid CPU"),
+        (
+            "benchmark:run",
+            ["--program", "load"],
+            "expected NAME=PATH, got \"load\"",
+        ),
+        (
+            "benchmark:smoke",
+            ["--program", "load"],
+            "expected NAME=PATH, got \"load\"",
+        ),
+    ] {
+        let mut arguments = if task == "benchmark:run" {
+            vec![
+                "work",
+                "--artifacts",
+                "target/remote-prepared/artifacts.json",
+            ]
+        } else {
+            Vec::new()
+        };
+        arguments.extend(option);
+        let error = call(&mut context, task, &arguments).unwrap_err();
+        assert!(
+            error.to_string().starts_with(&format!("{task}: {message}")),
+            "{error}"
+        );
+    }
 
     // So does a package that declares no scenarios.
     let error = call(&mut context, "benchmark:smoke", &["--package", "missing"]).unwrap_err();
