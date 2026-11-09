@@ -427,6 +427,8 @@ fn multi_process_scenarios_take_external_programs_and_role_cpus() {
     let artifacts = path("prepared/artifacts.json");
     let lock = path("lock");
     let cpu = allowed_cpu();
+    // A role given twice is placed by its later value, as the command places it.
+    let replaced = format!("client={}", cpu.parse::<usize>().unwrap() + 1);
     let client = format!("client={cpu}");
     let server = format!("server={cpu}");
     let plan = [
@@ -436,6 +438,8 @@ fn multi_process_scenarios_take_external_programs_and_role_cpus() {
         "1",
         "--seed",
         "3",
+        "--role-cpus",
+        &replaced,
         "--role-cpus",
         &client,
         "--role-cpus",
@@ -487,17 +491,20 @@ fn multi_process_scenarios_take_external_programs_and_role_cpus() {
     assert_eq!(planned["roles"][0]["cpus"], serde_json::json!([cpu]));
     assert_eq!(planned["roles"][1]["cpus"], serde_json::json!([cpu]));
 
-    // Malformed and repeated assignments fail as the command fails.
+    // Malformed and repeated assignments fail as the command fails, and with both a malformed program and malformed role CPUs, the command reports the program first.
     for invalid in [
         ["--program", "load"],
         ["--program", "=tools/load"],
+        ["--program", "load="],
         ["--role-cpus", "client"],
         ["--role-cpus", "client=x"],
     ]
     .iter()
     .map(|option| option.to_vec())
-    .chain([vec!["--program", "load=a", "--program", "load=b"]])
-    {
+    .chain([
+        vec!["--program", "load=a", "--program", "load=b"],
+        vec!["--role-cpus", "client", "--program", "load"],
+    ]) {
         let mut task = vec!["hello", "--artifacts", &artifacts, "--lock", &lock];
         task.extend(&invalid);
         let task_error = error(&mut context, "benchmark:run", &task);
